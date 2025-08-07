@@ -1,0 +1,179 @@
+import tkinter as tk
+from tkinter import ttk
+from tkinter import messagebox
+
+# Calibration data
+cooling_data = {
+    "spray water": {1: 300, 2: 400, 3: 250, 4: 200, 5: 450},
+    "spray air": {1: 100, 2: 150, 3: 175, 4: 125},
+    "mould cooling": {1: 400, 2: 250, 3: 175},
+    "machine cooling": {1: 200, 2: 150},
+}
+
+signal_values = [4, 8, 12, 16, 20]
+
+# Function to update loops based on the cooling system selection
+def update_loops(*args):
+    selected_cooling = cooling_system_var.get()
+    loops = cooling_data.get(selected_cooling, {}).keys()
+    loop_selector["values"] = list(loops)
+    loop_selector.set("")
+    update_display_value()
+
+# Function to update the display value and set values dynamically
+def update_display_value(*args):
+    selected_cooling = cooling_system_var.get()
+    selected_loop = loop_var.get()
+    value = cooling_data.get(selected_cooling, {}).get(selected_loop, "")
+    if value:
+        set_values = [value * p / 100 for p in [0, 25, 50, 75, 100]]
+    else:
+        set_values = []
+    value_display_var.set(f"Value: {value}" if value else "")
+    populate_table(set_values)
+
+# Function to validate and process the table for actual values
+def calculate_results():
+    status = "Pass"
+    all_values_filled = True
+
+    for item in results_table.get_children():
+        values = results_table.item(item, "values")
+        signal, set_value, actual_value = values[:3]
+
+        if not actual_value.strip():  # Check if actual value is empty
+            all_values_filled = False
+            break
+
+        actual_value = float(actual_value)
+        set_value = float(set_value)
+        deviation = abs(actual_value - set_value)
+        result_text = "OK" if deviation <= 1 else "Not OK"
+
+        if result_text == "Not OK":
+            status = "Fail"
+
+        # Update the row with result text
+        results_table.item(item, values=(signal, set_value, actual_value, result_text), tags=(result_text,))
+
+    if not all_values_filled:
+        messagebox.showerror("Error", "Please enter actual values for all rows.")
+        return
+
+    # Show popup with the result
+    messagebox.showinfo("Result", status)
+    apply_table_colors()
+
+# Function to apply colors to the "Result" column
+def apply_table_colors():
+    for item in results_table.get_children():
+        result_text = results_table.item(item, "values")[3]
+        color = "lightgreen" if result_text == "OK" else "lightcoral"
+        results_table.tag_configure("OK", background="lightgreen")
+        results_table.tag_configure("Not OK", background="lightcoral")
+        results_table.item(item, tags=(result_text,))
+
+# Function to enable in-place editing of "Actual Value" column
+def on_double_click(event):
+    selected_item = results_table.selection()
+    if not selected_item:
+        return
+    item_id = selected_item[0]
+    column_index = results_table.identify_column(event.x)  # Get the column clicked
+    if column_index == "#3":  # Allow editing only for "Actual Value" column
+        edit_actual_value(item_id)
+
+# Function to edit the actual value directly in the table
+def edit_actual_value(item_id):
+    values = results_table.item(item_id, "values")
+    actual_value = values[2]
+
+    entry = ttk.Entry(results_table)
+    entry.insert(0, actual_value)
+    entry.place(x=results_table.bbox(item_id, "#3")[0], y=results_table.bbox(item_id, "#3")[1])
+
+    def save_value(event=None):
+        new_value = entry.get().strip()
+        if new_value:
+            results_table.item(item_id, values=(values[0], values[1], new_value, values[3]))
+        entry.destroy()
+
+    entry.bind("<Return>", save_value)
+    entry.bind("<FocusOut>", save_value)
+    entry.focus()
+
+# Function to populate the table with calculated set values
+def populate_table(set_values=None):
+    for row in results_table.get_children():
+        results_table.delete(row)
+    if not set_values:
+        set_values = [0, 25, 50, 75, 100]  # Default values if none provided
+    for i, signal in enumerate(signal_values):
+        results_table.insert(
+            "",
+            "end",
+            values=(f"{signal} mA", set_values[i] if i < len(set_values) else "", "", ""),
+            tags=("default",),
+        )
+
+# Main application window
+app = tk.Tk()
+app.title("SMP3 Calibration Tool")
+
+# Header
+header = ttk.Label(app, text="SMP3 Calibration Tool", font=("Arial", 16))
+header.grid(row=0, column=0, pady=10)
+
+# Selection frame
+frame = ttk.Frame(app, padding=10)
+frame.grid(row=1, column=0, sticky=(tk.W, tk.E))
+
+# Dropdown for caster selection
+ttk.Label(frame, text="Select Caster:").grid(row=0, column=0, sticky=tk.W)
+caster_var = tk.StringVar()
+caster_selector = ttk.Combobox(frame, textvariable=caster_var, values=["caster 5", "caster 6", "common"])
+caster_selector.grid(row=0, column=1)
+
+# Dropdown for cooling system selection
+ttk.Label(frame, text="Select Cooling System:").grid(row=1, column=0, sticky=tk.W)
+cooling_system_var = tk.StringVar()
+cooling_selector = ttk.Combobox(frame, textvariable=cooling_system_var, values=list(cooling_data.keys()))
+cooling_selector.grid(row=1, column=1)
+cooling_selector.bind("<<ComboboxSelected>>", update_loops)
+
+# Dropdown for loop selection
+ttk.Label(frame, text="Select Loop:").grid(row=2, column=0, sticky=tk.W)
+loop_var = tk.IntVar()
+loop_selector = ttk.Combobox(frame, textvariable=loop_var)
+loop_selector.grid(row=2, column=1)
+loop_selector.bind("<<ComboboxSelected>>", update_display_value)
+
+# Display bar for loop value
+value_display_var = tk.StringVar()
+value_display = ttk.Label(frame, textvariable=value_display_var, relief="sunken", anchor="center")
+value_display.grid(row=3, column=0, columnspan=2, pady=10, sticky=(tk.W, tk.E))
+
+# Table for results
+ttk.Label(app, text="Results:").grid(row=2, column=0, pady=5)
+columns = ("Signal Value", "Set Value", "Actual Value", "Result")
+results_table = ttk.Treeview(app, columns=columns, show="headings", height=8)
+for col in columns:
+    results_table.heading(col, text=col)
+    results_table.column(col, width=150)
+
+results_table.bind("<Double-1>", on_double_click)  # Bind double-click to edit
+results_table.grid(row=3, column=0, sticky=(tk.W, tk.E))
+
+# Entry for actual values directly in the table
+populate_table()
+
+# Calculate button
+calculate_button = ttk.Button(app, text="Calculate", command=calculate_results)
+calculate_button.grid(row=4, column=0, pady=10)
+
+# Status display
+status_var = tk.StringVar(value="Status: ")
+status_display = ttk.Label(app, textvariable=status_var, relief="sunken", anchor="center")
+status_display.grid(row=5, column=0, pady=10, sticky=(tk.W, tk.E))
+
+app.mainloop()
